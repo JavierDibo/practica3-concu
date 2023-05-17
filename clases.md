@@ -109,11 +109,6 @@ public class Messages {
 
 
 ```java
-package org.example;
-
-import javax.jms.*;
-import java.util.Map;
-import org.example.Messages.*;
 public class ProcesoPedido implements MessageListener {
 
     private ConnectionFactory connectionFactory;
@@ -153,10 +148,16 @@ public class ProcesoPedido implements MessageListener {
 
                 if (obj instanceof AlmacenMessage) {
                     AlmacenMessage almacenMessage = (AlmacenMessage) obj;
-                    // Procesar mensaje de falta de inventario
+                    if (!almacenMessage.isHayStock()) {
+                        System.out.println("No hay suficiente inventario para el pedido: " + almacenMessage.getIdPedido());
+                    }
                 } else if (obj instanceof EntregaMessage) {
                     EntregaMessage entregaMessage = (EntregaMessage) obj;
-                    // Procesar confirmación de entrega
+                    if (entregaMessage.isEntregaExitosa()) {
+                        System.out.println("El pedido ha sido entregado exitosamente: " + entregaMessage.getIdPedido());
+                    } else {
+                        System.out.println("La entrega del pedido ha fallado: " + entregaMessage.getIdPedido());
+                    }
                 }
             } catch (JMSException e) {
                 e.printStackTrace();
@@ -164,18 +165,11 @@ public class ProcesoPedido implements MessageListener {
         }
     }
 }
-
 ```
 
 ### 2.2. Proceso de Almacén
 
 ```java
-package org.example;
-
-import javax.jms.*;
-import java.util.Map;
-import org.example.Messages.*;
-
 public class ProcesoAlmacen implements MessageListener {
     private ConnectionFactory connectionFactory;
     private Destination destinationPedido;
@@ -215,7 +209,7 @@ public class ProcesoAlmacen implements MessageListener {
                     AlmacenMessage almacenMessage = new AlmacenMessage();
                     almacenMessage.setIdPedido(pedidoMessage.getIdPedido());
                     almacenMessage.setHayStock(true);
-                    almacenMessage.setUbicacionAlmacen("Almacén Principal"); // Aquí se debe poner la ubicación real del almacén
+                    almacenMessage.setUbicacionAlmacen("Almacén Principal");
 
                     ObjectMessage respuestaMessage = session.createObjectMessage(almacenMessage);
                     producerTransporte.send(respuestaMessage);
@@ -234,21 +228,24 @@ public class ProcesoAlmacen implements MessageListener {
     }
 
     private boolean verificarDisponibilidad(Map<String, Integer> productosPedido) {
-        // Aquí debes implementar la lógica para verificar la disponibilidad de los productos en el almacén
-        // Esta es una implementación simplificada y siempre devuelve true
+        for (Map.Entry<String, Integer> producto : productosPedido.entrySet()) {
+            int cantidadEnAlmacen = obtenerCantidadEnAlmacen(producto.getKey());
+            if (cantidadEnAlmacen < producto.getValue()) {
+                return false;
+            }
+        }
         return true;
     }
-}
 
+    private int obtenerCantidadEnAlmacen(String producto) {
+        return 10;
+    }
+}
 ```
 
 ### 2.3. Proceso de Transporte
 
 ```java
-package org.example;
-
-import javax.jms.*;
-import org.example.Messages.*;
 public class ProcesoTransporte implements MessageListener {
     private ConnectionFactory connectionFactory;
     private Destination destinationAlmacen;
@@ -279,8 +276,7 @@ public class ProcesoTransporte implements MessageListener {
                 ObjectMessage objectMessage = (ObjectMessage) message;
                 AlmacenMessage almacenMessage = (AlmacenMessage) objectMessage.getObject();
                 if (almacenMessage.isHayStock()) {
-                    // Aquí debes implementar la lógica para calcular la hora estimada de entrega
-                    Date horaEstimadaEntrega = new Date();
+                    Date horaEstimadaEntrega = calcularHoraEstimadaEntrega();
                     TransporteMessage transporteMessage = new TransporteMessage(almacenMessage.getIdPedido(), horaEstimadaEntrega);
                     ObjectMessage respuestaMessage = session.createObjectMessage(transporteMessage);
                     producerEntrega.send(respuestaMessage);
@@ -290,19 +286,18 @@ public class ProcesoTransporte implements MessageListener {
             }
         }
     }
+
+    private Date calcularHoraEstimadaEntrega() {
+        Calendar calendar = Calendar.getInstance();
+        calendar.add(Calendar.HOUR, 1);
+        return calendar.getTime();
+    }
 }
-
-
 ```
 
 ### 2.4. Proceso de Entrega
 
 ```java
-package org.example;
-
-import javax.jms.*;
-import org.example.Messages.*;
-
 public class ProcesoEntrega implements MessageListener {
     private ConnectionFactory connectionFactory;
     private Destination destinationTransporte;
@@ -333,7 +328,7 @@ public class ProcesoEntrega implements MessageListener {
                 ObjectMessage objectMessage = (ObjectMessage) message;
                 TransporteMessage transporteMessage = (TransporteMessage) objectMessage.getObject();
                 // Aquí debes implementar la lógica para realizar la entrega del pedido
-                boolean entregaExitosa = true;
+                boolean entregaExitosa = realizarEntrega(transporteMessage.getIdPedido());
                 EntregaMessage entregaMessage = new EntregaMessage(transporteMessage.getIdPedido(), entregaExitosa);
                 ObjectMessage respuestaMessage = session.createObjectMessage(entregaMessage);
                 producerPedido.send(respuestaMessage);
@@ -342,6 +337,9 @@ public class ProcesoEntrega implements MessageListener {
             }
         }
     }
-}
 
+    private boolean realizarEntrega(int idPedido) {
+       return true;
+    }
+}
 ```
