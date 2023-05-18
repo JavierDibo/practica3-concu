@@ -2,7 +2,6 @@
 ```java
 public class Main {
     public static void main(String[] args) {
-
         System.setProperty("org.apache.activemq.SERIALIZABLE_PACKAGES","*");
 
         try {
@@ -20,17 +19,34 @@ public class Main {
             ProcesoEntrega procesoEntrega = new ProcesoEntrega(connectionFactory, destinationTransporte, destinationPedido);
 
             // Iniciar los procesos
+            System.out.println("Starting processes...");
             procesoPedido.iniciar();
             procesoAlmacen.iniciar();
             procesoTransporte.iniciar();
             procesoEntrega.iniciar();
 
             // Simular un pedido
+            System.out.println("Simulating order...");
             Map<String, Integer> productos = new HashMap<>();
             productos.put("Producto1", 10);
             procesoPedido.recibirPedido(1, productos);
 
+            // Wait for the processes to finish
+            System.out.println("Waiting for processes to finish...");
+            Thread.sleep(500);
+
+            procesoPedido.terminar();
+            procesoAlmacen.terminar();
+            procesoTransporte.terminar();
+            procesoEntrega.terminar();
+
+            System.out.println("Main process finished.");
+
         } catch (JMSException e) {
+            System.out.println("Caught a JMSException: " + e.getMessage());
+            e.printStackTrace();
+        } catch (InterruptedException e) {
+            System.out.println("Caught an InterruptedException: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -47,6 +63,10 @@ public class ProcesoPedido implements MessageListener {
     private ConnectionFactory connectionFactory;
     private Destination destinationAlmacen;
     private Destination destinationPedido;
+    private Connection connection;
+    private Session session;
+    private MessageConsumer consumer;
+    private MessageProducer producer;
 
     public ProcesoPedido(ConnectionFactory connectionFactory, Destination destinationAlmacen, Destination destinationPedido) {
         this.connectionFactory = connectionFactory;
@@ -55,18 +75,21 @@ public class ProcesoPedido implements MessageListener {
     }
 
     public void iniciar() throws JMSException {
-        Connection connection = connectionFactory.createConnection();
-        Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-        MessageConsumer consumer = session.createConsumer(destinationPedido);
+        connection = connectionFactory.createConnection();
+        session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+        consumer = session.createConsumer(destinationPedido);
         consumer.setMessageListener(this);
         connection.start();
     }
 
-    public void recibirPedido(int idPedido, Map<String, Integer> productos) throws JMSException {
-        Connection connection = connectionFactory.createConnection();
-        Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-        MessageProducer producer = session.createProducer(destinationAlmacen);
+    public void terminar() throws JMSException {
+        consumer.close();
+        session.close();
+        connection.close();
+    }
 
+    public void recibirPedido(int idPedido, Map<String, Integer> productos) throws JMSException {
+        producer = session.createProducer(destinationAlmacen);
         PedidoMessage pedido = new PedidoMessage(idPedido, productos);
         ObjectMessage objectMessage = session.createObjectMessage(pedido);
         producer.send(objectMessage);
@@ -112,6 +135,7 @@ public class ProcesoAlmacen implements MessageListener {
     private Session session;
     private MessageProducer producerPedido;
     private MessageProducer producerTransporte;
+    private MessageConsumer consumer;
     private  int cantitdadAlmacen = CANTIDAD_INICIAL;
 
     public ProcesoAlmacen(ConnectionFactory connectionFactory, Destination destinationPedido, Destination destinationAlmacen, Destination destinationTransporte) {
@@ -124,11 +148,19 @@ public class ProcesoAlmacen implements MessageListener {
     public void iniciar() throws JMSException {
         connection = connectionFactory.createConnection();
         session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-        MessageConsumer consumer = session.createConsumer(destinationPedido);
+        consumer = session.createConsumer(destinationPedido);
         consumer.setMessageListener(this);
         producerPedido = session.createProducer(destinationPedido);
         producerTransporte = session.createProducer(destinationTransporte);
         connection.start();
+    }
+
+    public void terminar() throws JMSException {
+        consumer.close();
+        producerPedido.close();
+        producerTransporte.close();
+        session.close();
+        connection.close();
     }
 
     @Override
@@ -184,6 +216,7 @@ public class ProcesoTransporte implements MessageListener {
     private Connection connection;
     private Session session;
     private MessageProducer producerEntrega;
+    private MessageConsumer consumer;
 
     public ProcesoTransporte(ConnectionFactory connectionFactory, Destination destinationAlmacen, Destination destinationEntrega) {
         this.connectionFactory = connectionFactory;
@@ -194,10 +227,17 @@ public class ProcesoTransporte implements MessageListener {
     public void iniciar() throws JMSException {
         connection = connectionFactory.createConnection();
         session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-        MessageConsumer consumer = session.createConsumer(destinationAlmacen);
+        consumer = session.createConsumer(destinationAlmacen);
         consumer.setMessageListener(this);
         producerEntrega = session.createProducer(destinationEntrega);
         connection.start();
+    }
+
+    public void terminar() throws JMSException {
+        consumer.close();
+        producerEntrega.close();
+        session.close();
+        connection.close();
     }
 
     @Override
@@ -232,10 +272,6 @@ public class ProcesoTransporte implements MessageListener {
 ### 2.4. Proceso de Entrega
 
 ```java
-package org.example;
-
-import javax.jms.*;
-import org.example.Messages.*;
 public class ProcesoEntrega implements MessageListener {
     private ConnectionFactory connectionFactory;
     private Destination destinationTransporte;
@@ -243,6 +279,7 @@ public class ProcesoEntrega implements MessageListener {
     private Connection connection;
     private Session session;
     private MessageProducer producerPedido;
+    private MessageConsumer consumer;
 
     public ProcesoEntrega(ConnectionFactory connectionFactory, Destination destinationTransporte, Destination destinationPedido) {
         this.connectionFactory = connectionFactory;
@@ -253,10 +290,17 @@ public class ProcesoEntrega implements MessageListener {
     public void iniciar() throws JMSException {
         connection = connectionFactory.createConnection();
         session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-        MessageConsumer consumer = session.createConsumer(destinationTransporte);
+        consumer = session.createConsumer(destinationTransporte);
         consumer.setMessageListener(this);
         producerPedido = session.createProducer(destinationPedido);
         connection.start();
+    }
+
+    public void terminar() throws JMSException {
+        consumer.close();
+        producerPedido.close();
+        session.close();
+        connection.close();
     }
 
     @Override
@@ -281,17 +325,9 @@ public class ProcesoEntrega implements MessageListener {
 }
 ```
 
-## Estructura de mensajes
-
-## 2. Estructura de mensajes
+## 3. Estructura de mensajes
 
 ```java
-package org.example;
-
-import java.io.Serializable;
-import java.util.Date;
-import java.util.Map;
-
 public class Messages {
     public static class PedidoMessage implements Serializable {
         private int idPedido;
